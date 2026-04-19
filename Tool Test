@@ -1,1 +1,187 @@
 
+!pip install arch pandas_datareader statsmodels
+
+# Simulação de um processo ARCH(1) com parâmetros alpha0=0.1 e alpha1=0.8
+# Nota: certifique-se de ter instalados os pacotes `arch`, `pandas_datareader`, `statsmodels` etc. via pip antes de executar.
+import numpy as np
+import pandas as pd
+import pandas_datareader.data as web
+import matplotlib.pyplot as plt
+from arch import arch_model
+from statsmodels.graphics.tsaplots import plot_acf
+import statsmodels.api as sm
+from statsmodels.stats.diagnostic import acorr_ljungbox
+
+# Simulação do processo ARCH(1)
+# 1. Coleta dos dados reais
+sp = web.DataReader('SP500', 'fred', '2018-01-01', '2018-12-31')
+sp['ret'] = np.log(sp['SP500'] / sp['SP500'].shift(1)) * 100
+ret = sp['ret'].dropna()
+dates = ret.index  # salva as datas reais (252 observações)
+
+# 2. Estimação ARCH(1)
+am = arch_model(ret, mean='Constant', vol='ARCH', p=1)
+res = am.fit(disp='off')
+omega, alpha1 = res.params['omega'], res.params['alpha[1]']
+
+# 3. Simulação ARCH(1)
+T = len(ret)
+np.random.seed(42)
+epsilon, h = np.zeros(T), np.zeros(T)
+z = np.random.normal(size=T)
+
+h[0] = omega / (1 - alpha1)
+epsilon[0] = np.sqrt(h[0]) * z[0]
+for t in range(1, T):
+    h[t] = omega + alpha1 * epsilon[t-1]**2
+    epsilon[t] = np.sqrt(h[t]) * z[t]
+
+# 4. Monta DataFrame com datas reais
+sim_df = pd.DataFrame({'epsilon_t': epsilon, 'h_t': h}, index=dates)
+
+# 5. Gráficos (corrigindo a formatação de ε_t e h_t)
+
+# ε_t
+plt.figure(figsize=(7, 5))
+plt.plot(sim_df.index, sim_df['epsilon_t'], color='tab:blue')
+plt.title(r"Série simulada $\varepsilon_t$", fontsize=13)
+plt.xlabel("Data")
+plt.ylabel(r"$\varepsilon_t$")
+plt.grid(True, linestyle="--", alpha=0.6)
+plt.tight_layout()
+plt.show()
+
+# h_t
+plt.figure(figsize=(7, 5))
+plt.plot(sim_df.index, sim_df['h_t'], color='orange')
+plt.title(r"Variância condicional $h_t$", fontsize=13)
+plt.xlabel("Data")
+plt.ylabel(r"$h_t$")
+plt.grid(True, linestyle="--", alpha=0.6)
+plt.tight_layout()
+plt.show()
+
+
+# Download dos dados do S&P 500 (FRED)
+sp500 = web.DataReader('SP500', 'fred', '2018-01-01', '2018-12-25')
+
+# Gráfico dos níveis do índice S&P 500
+plt.figure(figsize=(10,5))
+plt.plot(sp500['SP500'], color='darkred')
+plt.title('Níveis Diários do Índice S&P 500 (2018)')
+plt.xlabel('Data')
+plt.ylabel('Nível do Índice (pontos)')
+plt.grid(True, linestyle='--', alpha=0.6)
+plt.show()
+
+
+# 3. Baixar preços diários do S&P 500 (ano de 2018) via API do FRED
+start_date = "2018-01-01"
+end_date = "2018-12-31"
+sp500 = web.DataReader('SP500', 'fred', start_date, end_date)
+
+
+# 4. Calcular retornos logarítmicos diários e volatilidade móvel de 20 dias
+# Cálculo dos retornos logarítmicos diários (usando preço de fechamento do índice)
+sp500['LogReturn'] = np.log(sp500['SP500'] / sp500['SP500'].shift(1))
+# Remover o primeiro valor NaN resultante da diferença
+returns = sp500['LogReturn'].dropna()
+
+# Calcular a volatilidade histórica móvel de 20 dias (desvio padrão dos últimos 20 retornos)
+vol_20 = returns.rolling(window=20).std()
+
+
+# 5. Plotar os retornos diários e a volatilidade móvel de 20 dias
+plt.figure()
+plt.plot(returns, label="Retorno diário")
+plt.title("Retornos logarítmicos diários - S&P 500 (2018)")
+plt.xlabel("Data")
+plt.ylabel("Retorno logarítmico")
+plt.axhline(0, color='black', linewidth=0.8)  # linha horizontal em 0 para referência
+plt.show()
+
+plt.figure()
+plt.plot(vol_20, color='red', label="Volatilidade 20 dias")
+plt.title("Volatilidade móvel de 20 dias - S&P 500 (2018)")
+plt.xlabel("Data")
+plt.ylabel("Desvio padrão dos retornos (20 dias)")
+plt.show()
+
+# 6. Estimar um modelo GARCH(1,1) com média constante para os retornos (em %)
+# Escalar os retornos por 100 para tê-los em porcentagem
+returns_pct = returns * 100
+
+# Definir e ajustar o modelo GARCH(1,1)
+model = arch_model(returns_pct, mean='Constant', vol='GARCH', p=1, q=1)
+result = model.fit(disp='off')
+
+
+# 7. Análise dos resultados do modelo GARCH(1,1) - gráficos de diagnóstico
+# (a) Volatilidade condicional estimada vs. volatilidade histórica (20 dias)
+# Obter volatilidade condicional estimada (desvio padrão condicional) do modelo GARCH
+cond_vol = result.conditional_volatility
+# Converter em Série pandas para alinhar com datas (mesmo índice dos retornos)
+cond_vol = pd.Series(cond_vol, index=returns_pct.index)
+# Volatilidade histórica de 20 dias em % (desvio padrão * 100)
+hist_vol_20 = vol_20 * 100
+
+plt.figure()
+plt.plot(cond_vol, label="Volatilidade condicional (GARCH)")
+plt.plot(hist_vol_20, label="Volatilidade histórica (20 dias)", alpha=0.7)
+plt.title("Volatilidade condicional estimada vs. volatilidade histórica (20 dias)")
+plt.xlabel("Data")
+plt.ylabel("Volatilidade (%)")
+plt.legend()
+plt.show()
+
+
+# (b) Resíduos padronizados do modelo GARCH(1,1)
+# (resíduo = retorno - média ajustada; padronizado = resíduo / desvio padrão condicional)
+residuals = result.resid
+std_resid = residuals / result.conditional_volatility
+std_resid = pd.Series(std_resid, index=returns_pct.index)
+
+plt.figure()
+plt.plot(std_resid, label="Resíduo padronizado")
+plt.title("Resíduos padronizados do modelo GARCH(1,1)")
+plt.xlabel("Data")
+plt.ylabel("Resíduo padronizado")
+plt.axhline(0, color='black', linewidth=0.8)
+plt.show()
+
+
+# (c) ACF dos resíduos padronizados
+plt.figure()
+plot_acf(std_resid, ax=plt.gca(), lags=20, zero=False)
+plt.title("ACF dos resíduos padronizados")
+plt.xlabel("Defasagem (lag)")
+plt.ylabel("Autocorrelação")
+plt.show()
+
+
+
+# (d) ACF dos quadrados dos resíduos padronizados
+plt.figure()
+plot_acf(std_resid**2, ax=plt.gca(), lags=20, zero=False)
+plt.title("ACF dos quadrados dos resíduos padronizados")
+plt.xlabel("Defasagem (lag)")
+plt.ylabel("Autocorrelação")
+plt.show()
+
+# (e) Gráfico Q-Q dos resíduos padronizados (comparação com distribuição normal)
+plt.figure()
+sm.qqplot(std_resid, line='s', ax=plt.gca())
+plt.title("Gráfico Q-Q dos resíduos padronizados")
+plt.show()
+
+# 8. Exibir no console o sumário da estimação GARCH(1,1) e o teste Ljung-Box (lag 10) para resíduos^2
+print("Sumário da estimação GARCH(1,1):")
+print(result.summary())
+
+# Teste de Ljung-Box para autocorrelação dos resíduos ao quadrado (lag = 10)
+lb_test = acorr_ljungbox(std_resid**2, lags=[10], return_df=True)
+lb_stat = lb_test['lb_stat'].iloc[0]
+lb_pvalue = lb_test['lb_pvalue'].iloc[0]
+print(f"\nTeste Ljung-Box (lag 10) dos resíduos ao quadrado:")
+print(f"Estatística LB(10) = {lb_stat:.3f}, p-valor = {lb_pvalue:.3f}")
+
