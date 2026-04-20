@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Spyder Editor
-
-This is a temporary script file.
-"""
-
 class Microwave:
     def __init__(self, brand: str, power_rating: str) -> None:
         self.brand = brand
