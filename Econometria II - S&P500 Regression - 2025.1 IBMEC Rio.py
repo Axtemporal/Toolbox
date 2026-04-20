@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Apr 19 23:23:14 2026
-
-@author: axtem
-"""
-
 !pip install arch pandas_datareader statsmodels
 
 
